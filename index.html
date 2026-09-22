@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CET6备考">
+<title>CET-6 写作 · 翻译备考台</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <h1>CET-6 写作 · 翻译备考台</h1>
+      <span class="sub">六级 · 目标 <span id="goalShown">570</span> 分</span>
+    </div>
+    <span class="goal-chip" id="chipLevel">写作/翻译合计占 213 分</span>
+    <button class="icon-btn" id="btnExport">导出数据</button>
+    <button class="icon-btn" id="btnImport">导入</button>
+    <input type="file" id="fileImport" accept=".json" hidden>
+  </div>
+  <nav class="tabs">
+    <button class="active" data-panel="writing">写作批改</button>
+    <button data-panel="translation">翻译批改</button>
+    <button data-panel="diagnose">薄弱点诊断</button>
+    <button data-panel="history">历史记录</button>
+    <button data-panel="settings">设置</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ============ 写作批改 ============ -->
+  <section class="panel active" id="panel-writing">
+    <div class="card">
+      <h2>作文批改</h2>
+      <p class="hint">粘贴或输入英文作文。评分维度遵循 cet-skill 的写作 rubric：内容切题 20%、结构 15%、连贯 15%、语法 15%、词汇 10%、句式 10%、自然度 10%、模板痕迹 5%。</p>
+
+      <label class="fld">题目 / 关键词 <span class="opt">（选填，填写后可检测切题度）</span></label>
+      <input type="text" id="wTopic" placeholder="例如：Should universities give practical training priority over academic research?">
+
+      <label class="fld">你的作文</label>
+      <textarea id="wText" placeholder="在此粘贴或输入英文作文（六级建议 150–220 词）…"></textarea>
+      <div class="drop" id="wDrop">点击选择 .txt 文件，或把文件拖到这里</div>
+      <input type="file" id="wFile" accept=".txt,.md,.text" hidden>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="wRun">开始批改</button>
+        <button class="btn ghost" id="wClear">清空</button>
+        <select id="wDepth" style="max-width:170px">
+          <option value="local">本地引擎评分</option>
+          <option value="ai">AI 深度批改（需配置）</option>
+        </select>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:8px" id="wCount">已输入 0 词</div>
+    </div>
+
+    <div id="wResult"></div>
+  </section>
+
+  <!-- ============ 翻译批改 ============ -->
+  <section class="panel" id="panel-translation">
+    <div class="card">
+      <h2>翻译批改</h2>
+      <p class="hint">先填中文原文，再填你的英文译文。系统会核对数字与专有名词是否译出、检测中式英语，并按信息完整度 40%、语法 25%、自然度 20%、句法语序 15% 评分。</p>
+
+      <label class="fld">中文原文</label>
+      <textarea id="tZh" style="min-height:110px" placeholder="粘贴中文段落…"></textarea>
+
+      <label class="fld">你的英文译文</label>
+      <textarea id="tEn" placeholder="在此输入你的英文译文…"></textarea>
+      <div class="drop" id="tDrop">点击选择 .txt 文件，或把文件拖到这里</div>
+      <input type="file" id="tFile" accept=".txt,.md,.text" hidden>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="tRun">开始批改</button>
+        <button class="btn ghost" id="tClear">清空</button>
+        <button class="btn ghost" id="tSample">载入一道原创训练题</button>
+        <select id="tDepth" style="max-width:170px">
+          <option value="local">本地引擎评分</option>
+          <option value="ai">AI 深度批改（需配置）</option>
+        </select>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:8px" id="tCount">已输入 0 词</div>
+    </div>
+
+    <div id="tResult"></div>
+  </section>
+
+  <!-- ============ 薄弱点诊断 ============ -->
+  <section class="panel" id="panel-diagnose">
+    <div class="card">
+      <h2>薄弱点诊断</h2>
+      <p class="hint">基于你的历史批改记录，统计各维度均分，找出最需要补的环节，并生成针对性的原创模拟训练。</p>
+      <button class="btn" id="dRun">重新诊断</button>
+    </div>
+    <div id="dResult"></div>
+  </section>
+
+  <!-- ============ 历史记录 ============ -->
+  <section class="panel" id="panel-history">
+    <div class="card">
+      <h2>历史记录</h2>
+      <p class="hint">所有批改自动保存在本机（localStorage）。同一台设备、同一个浏览器再次打开即可看到，无需联网。</p>
+      <div class="row">
+        <button class="btn ghost sm" id="hRefresh">刷新</button>
+        <button class="btn ghost sm" id="hExport">导出 JSON</button>
+        <button class="btn ghost sm" id="hClear">清空全部</button>
+      </div>
+    </div>
+    <div class="card" id="hTrendCard">
+      <h2>分数趋势</h2>
+      <div id="hTrend"></div>
+    </div>
+    <div class="card">
+      <h2>全部记录 <span id="hCount" style="font-weight:400;color:var(--ink-3);font-size:13px"></span></h2>
+      <div id="hList"></div>
+    </div>
+  </section>
+
+  <!-- ============ 设置 ============ -->
+  <section class="panel" id="panel-settings">
+    <div class="card">
+      <h2>目标与画像</h2>
+      <p class="hint">目标总分用于换算各题型的达标线。</p>
+      <label class="fld">目标总分（710 分制）</label>
+      <input type="number" id="sGoal" value="570" min="0" max="710">
+      <label class="fld">考试日期 <span class="opt">（选填）</span></label>
+      <input type="text" id="sDate" placeholder="例如：2026-12-12">
+      <label class="fld">每天可学习时间 <span class="opt">（选填）</span></label>
+      <input type="text" id="sTime" placeholder="例如：2 小时">
+      <div class="row" style="margin-top:12px"><button class="btn" id="sSave">保存</button></div>
+      <div id="sTip" style="font-size:13px;margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>AI 深度批改（可选）</h2>
+      <p class="hint">本地引擎是规则级诊断，覆盖形式、搭配与统计特征。若希望得到语义层面的评分、逐句润色与高分改写，可填入任意 OpenAI 兼容接口的信息。密钥只保存在本机浏览器，不会上传。</p>
+      <label class="fld">接口地址 Base URL</label>
+      <input type="text" id="sBase" placeholder="例如：https://api.deepseek.com/v1">
+      <label class="fld">模型名称</label>
+      <input type="text" id="sModel" placeholder="例如：deepseek-chat">
+      <label class="fld">API Key</label>
+      <input type="password" id="sKey" placeholder="sk-…">
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="sSaveAI">保存</button>
+        <button class="btn ghost" id="sTestAI">测试连接</button>
+      </div>
+      <div id="sTipAI" style="font-size:13px;margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>云同步（GitHub Gist）</h2>
+      <p class="hint">开启后，批改记录会存进你自己的<b>私密 Gist</b>，手机和电脑共用同一份数据，换设备、清缓存都不丢。token 只保存在本机浏览器，除 GitHub 外不发给任何服务。</p>
+      <ol class="hint" style="padding-left:18px;margin:6px 0 10px">
+        <li>打开 <b>github.com → 头像 → Settings → Developer settings → Personal access tokens → Fine-grained tokens</b></li>
+        <li>Generate new token：名称随意，过期建议选 1 年，<b>只勾选 gist 的读写权限</b>（Read and write）</li>
+        <li>生成后复制 <code>github_pat_…</code> 开头的字符串，粘贴到下面</li>
+      </ol>
+      <label class="fld">GitHub Token</label>
+      <input type="password" id="syncToken" placeholder="github_pat_…">
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="syncSave">保存并连接</button>
+        <button class="btn ghost" id="syncNow">立即同步</button>
+        <button class="btn ghost" id="syncOff">断开</button>
+      </div>
+      <label class="chk-opt">
+        <input type="checkbox" id="syncAuto"><span>自动同步（每次批改后自动上传，打开网页时自动拉取）</span>
+      </label>
+      <div id="syncStat" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>数据管理</h2>
+      <p class="hint">记录保存在浏览器本地存储中。换设备或清理浏览器数据前，请先导出备份。</p>
+      <div class="row">
+        <button class="btn ghost sm" id="sExport">导出全部数据</button>
+        <button class="btn ghost sm" id="sImport">导入备份</button>
+        <button class="btn ghost sm" id="sWipe">清除所有记录</button>
+      </div>
+      <div id="sStat" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="foot">原创 CET-style 仿真训练 · 数据仅保存在本机 · 不上传任何内容</div>
+<div class="toast" id="toast"></div>
+
+<script src="engine.js"></script>
+<script src="questions.js"></script>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
