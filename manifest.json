@@ -1,0 +1,20 @@
+{
+  "name": "CET-6 写作 · 翻译备考台",
+  "short_name": "CET6备考",
+  "description": "六级写作与翻译批改、薄弱点诊断、历史记录留存",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7f9",
+  "theme_color": "#ffffff",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
