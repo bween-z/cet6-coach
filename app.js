@@ -26,8 +26,66 @@
     } catch (e) { console.warn('读取本地数据失败', e); }
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(DB)); }
-    catch (e) { toast('保存失败：本地存储空间不足'); }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(DB));
+      localStorage.setItem(KEY + '_count', String(DB.records.length));
+    } catch (e) { toast('保存失败：本地存储空间不足'); }
+    idbSaveSoon();
+  }
+
+  /* 第二层备份：写进 IndexedDB。部分手机浏览器会清 localStorage 但留下 IndexedDB */
+  var idbTimer;
+  function idbSaveSoon() {
+    if (!window.CETStore) return;
+    clearTimeout(idbTimer);
+    idbTimer = setTimeout(function () {
+      window.CETStore.put({ records: DB.records, deleted: DB.deleted, settings: { goal: DB.goal, examDate: DB.examDate, dailyTime: DB.dailyTime, ts: DB.settingsTs } });
+    }, 800);
+  }
+
+  /* 立即把空状态写进 IndexedDB，避免清空后又被"找回"复活 */
+  function flushIdb() {
+    if (!window.CETStore) return;
+    clearTimeout(idbTimer);
+    window.CETStore.put({ records: DB.records, deleted: DB.deleted, settings: { goal: DB.goal, examDate: DB.examDate, dailyTime: DB.dailyTime, ts: DB.settingsTs } });
+  }
+
+  /* 打开页面时：若本地数据被清空，尝试从 IndexedDB 备份找回 */
+  function recoverIfNeeded() {
+    if (!window.CETStore) return;
+    window.CETStore.get().then(function (d) {
+      var lastCount = parseInt(localStorage.getItem(KEY + '_count') || '0', 10) || 0;
+      var added = 0;
+      if (d && d.records && d.records.length) {
+        var ids = {};
+        DB.records.forEach(function (r) { ids[r.id] = 1; });
+        var miss = d.records.filter(function (r) { return r && r.id && !ids[r.id]; });
+        if (miss.length) {
+          DB.records = DB.records.concat(miss)
+            .sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 300);
+          added = miss.length;
+        }
+        if (d.deleted && d.deleted.length) {
+          d.deleted.forEach(function (id) { if (DB.deleted.indexOf(id) < 0) DB.deleted.push(id); });
+        }
+        if (added) { save(); renderHistory(); syncSettingsUI(); toast('已从本机备份找回 ' + added + ' 条记录'); }
+      }
+      // 两层都没数据，但上次明明有 → 浏览器真的清掉了，明确告诉用户
+      if (!added && lastCount > 0 && DB.records.length === 0) {
+        setTimeout(function () {
+          toast('检测到本地数据被浏览器清除了（' + lastCount + ' 条）');
+          alert('上次打开时有 ' + lastCount + ' 条记录，现在没有读到数据。\n\n' +
+            '常见原因：\n' +
+            '· 用微信/QQ 等 App 内置浏览器打开——关闭后数据会被清掉\n' +
+            '· 无痕/隐私模式\n' +
+            '· 浏览器设置了「退出时清除数据」\n\n' +
+            '建议：\n' +
+            '1. 用 Safari / Chrome 打开本页，并「添加到主屏幕」\n' +
+            '2. 开启云同步，数据存到云端，不再依赖本机\n' +
+            '3. 定期用「导出数据」存一份 JSON');
+        }, 600);
+      }
+    });
   }
 
   /* ---------- 工具 ---------- */
@@ -445,7 +503,7 @@
 
   function doSync(silent) {
     if (!window.CETSync) return;
-    if (!window.CETSync.ready()) { renderSyncStat(); if (!silent) toast('请先填写 token'); return; }
+    if (!window.CETSync.ready()) { renderSyncStat(); if (!silent) toast('请先配置 GitHub token 或自建后端'); return; }
     if (!silent) $('#syncStat').textContent = '同步中…';
     window.CETSync.sync(snapshot()).then(function (res) {
       applySnapshot(res.data);
@@ -466,13 +524,17 @@
   function renderSyncStat() {
     var el = $('#syncStat');
     if (!el || !window.CETSync) return;
-    var on = window.CETSync.ready();
+    var m = window.CETSync.mode();
+    var on = m !== 'none';
     var meta = window.CETSync.meta();
     var gzip = window.CETSync.gistId();
+    var where = m === 'gist'
+      ? '私密 Gist ' + (gzip ? gzip.slice(0, 8) + '…' : '待创建')
+      : (function () { try { return '自建后端 ' + new URL(window.CETSync.ep()).hostname; } catch (e) { return '自建后端'; } })();
     var html = '<div class="kv"><span>状态</span><b style="color:' + (on ? 'var(--good)' : 'var(--muted)') + '">' +
-      (on ? '已连接' : '未连接') + '</b></div>';
+      (on ? '已连接（' + (m === 'gist' ? 'GitHub Gist' : '自建后端') + '）' : '未连接') + '</b></div>';
     if (on) {
-      html += '<div class="kv"><span>云端位置</span><b>私密 Gist ' + (gzip ? gzip.slice(0, 8) + '…' : '待创建') + '</b></div>' +
+      html += '<div class="kv"><span>云端位置</span><b>' + esc(where) + '</b></div>' +
         '<div class="kv"><span>上次同步</span><b>' + (meta.lastSync ? fmtDate(meta.lastSync) : '尚未同步') + '</b></div>' +
         '<div class="kv"><span>本机记录</span><b>' + DB.records.length + ' 条</b></div>';
     }
@@ -484,6 +546,8 @@
         '当前是本地文件方式打开，浏览器可能拦截网络请求。云同步建议使用网址版。</div>';
     }
     el.innerHTML = html;
+    var el2 = $('#epStat');
+    if (el2) el2.innerHTML = html;
   }
 
   /* ---------- 文件读取 ---------- */
@@ -598,6 +662,7 @@
         DB.records.forEach(function (r) { DB.deleted.push(r.id); });
         if (DB.deleted.length > 500) DB.deleted = DB.deleted.slice(-500);
         DB.records = []; save(); renderHistory(); syncSettingsUI(); scheduleSync(); toast('已清空');
+        flushIdb();
       }
     };
     $('#hList').addEventListener('click', function (e) {
@@ -651,6 +716,7 @@
         if (DB.deleted.length > 500) DB.deleted = DB.deleted.slice(-500);
         DB = { goal: 570, examDate: '', dailyTime: '', ai: { base: '', model: '', key: '' }, records: [], deleted: DB.deleted, settingsTs: Date.now() };
         save(); syncSettingsUI(); renderHistory(); scheduleSync(); toast('已重置');
+        flushIdb();
       }
     };
 
@@ -668,9 +734,25 @@
       $('#syncNow').onclick = function () { doSync(false); };
       $('#syncOff').onclick = function () {
         if (!confirm('断开后不再同步，本机数据保留。确定？')) return;
-        window.CETSync.clear(); $('#syncToken').value = '';
+        window.CETSync.clearGist(); $('#syncToken').value = '';
         renderSyncStat(); toast('已断开');
       };
+      $('#epSave').onclick = function () {
+        var u = $('#epUrl').value.trim().replace(/\/+$/, '');
+        var c = $('#epCode').value.trim();
+        if (!u || !c) { toast('请填写后端地址和同步码'); return; }
+        if (!/^https?:\/\//i.test(u)) { toast('后端地址要以 http:// 或 https:// 开头'); return; }
+        window.CETSync.setEp(u, c);
+        syncCfg(true); $('#syncAuto').checked = true;
+        doSync(false);
+      };
+      $('#epOff').onclick = function () {
+        if (!confirm('断开后不再同步，本机数据保留。确定？')) return;
+        window.CETSync.clearEp(); $('#epUrl').value = ''; $('#epCode').value = '';
+        renderSyncStat(); toast('已断开');
+      };
+      if (window.CETSync.ep()) $('#epUrl').value = window.CETSync.ep();
+      if (window.CETSync.code()) $('#epCode').value = window.CETSync.code();
       renderSyncStat();
     }
 
@@ -679,6 +761,8 @@
 
     // 已配置过 token：打开网页时自动拉取云端数据
     if (window.CETSync && window.CETSync.ready()) doSync(true);
+    // 本地数据被清掉时，从 IndexedDB 备份找回
+    recoverIfNeeded();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
