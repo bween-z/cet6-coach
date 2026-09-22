@@ -179,6 +179,29 @@
     </div>
 
     <div class="card">
+      <h2>通用云同步（不需要 GitHub 账号）</h2>
+      <p class="hint">如果你不想碰 GitHub，可以用一个自建后端：一个网址 + 一串自定的<b>同步码</b>，任何设备填同样的网址和同步码就能共用数据。部署一次约 5 分钟，免费。</p>
+      <details style="margin:8px 0">
+        <summary style="cursor:pointer;font-size:13.5px;color:var(--accent)">怎么弄到这个后端地址？（Cloudflare Workers，免费）</summary>
+        <ol class="hint" style="padding-left:18px;margin:8px 0">
+          <li>注册 cloudflare.com（免费）→ 左侧 <b>Workers &amp; Pages</b> → Create → Create Worker → 随便起个名 → Deploy</li>
+          <li>进 Worker → <b>Settings → Variables → KV Namespace Bindings</b> → 绑定一个新建的 KV，变量名填 <code>CET6_DATA</code></li>
+          <li>点 <b>Quick edit</b>，把本项目 <code>cloudflare-worker.js</code> 的内容整段粘进去 → Deploy</li>
+          <li>把 Worker 的网址（形如 <code>https://xxx.yourname.workers.dev</code>）填到下面</li>
+        </ol>
+      </details>
+      <label class="fld">后端地址</label>
+      <input type="text" id="epUrl" placeholder="https://xxx.yourname.workers.dev">
+      <label class="fld">同步码 <span class="opt">（自己起一串，别人猜不到即可；两台设备填一样的）</span></label>
+      <input type="text" id="epCode" placeholder="例如：bowen-cet6-2026">
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="epSave">保存并连接</button>
+        <button class="btn ghost" id="epOff">断开</button>
+      </div>
+      <div id="epStat" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
       <h2>数据管理</h2>
       <p class="hint">记录保存在浏览器本地存储中。换设备或清理浏览器数据前，请先导出备份。</p>
       <div class="row">
@@ -197,6 +220,7 @@
 
 <script src="engine.js"></script>
 <script src="questions.js"></script>
+<script src="store.js"></script>
 <script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
