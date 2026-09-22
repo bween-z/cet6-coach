@@ -10,6 +10,8 @@
   var TK = 'cet6_gh_token';
   var GK = 'cet6_gh_gist';
   var SK = 'cet6_sync_meta';
+  var EK = 'cet6_ep_url';
+  var CK = 'cet6_ep_code';
 
   var state = { lastSync: 0, lastError: '', busy: false };
 
@@ -20,6 +22,27 @@
   function setGistId(id) { try { if (id) { localStorage.setItem(GK, id); } else { localStorage.removeItem(GK); } } catch (e) { } }
   function getMeta() { try { return JSON.parse(localStorage.getItem(SK) || '{}'); } catch (e) { return {}; } }
   function setMeta(m) { try { localStorage.setItem(SK, JSON.stringify(m)); } catch (e) { } }
+
+  /* 自建后端（无需 GitHub）：一个 URL + 一个自定的同步码 */
+  function getEp() { try { return localStorage.getItem(EK) || ''; } catch (e) { return ''; } }
+  function getCode() { try { return localStorage.getItem(CK) || ''; } catch (e) { return ''; } }
+  function setEp(url, code) {
+    try {
+      if (url) { localStorage.setItem(EK, url); localStorage.setItem(CK, code || ''); }
+      else { localStorage.removeItem(EK); localStorage.removeItem(CK); }
+    } catch (e) { }
+  }
+  function epUrl() {
+    var u = getEp(), c = getCode();
+    return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'code=' + encodeURIComponent(c);
+  }
+
+  /* 三种模式：自建后端 > GitHub Gist > 不同步 */
+  function mode() {
+    if (getEp()) return 'worker';
+    if (getToken()) return 'gist';
+    return 'none';
+  }
 
   /* ---------- 网络 ---------- */
   function req(method, path, body) {
@@ -114,31 +137,58 @@
     return { records: records, deleted: Object.keys(del).slice(-500), settings: settings, ts: Date.now() };
   }
 
+  /* ---------- 读写远端（两种后端共用） ---------- */
+  function remoteRead() {
+    if (mode() === 'worker') {
+      return fetch(epUrl(), { cache: 'no-store' }).then(function (r) {
+        if (!r.ok) throw new Error('后端返回 HTTP ' + r.status);
+        return r.text();
+      }).then(function (t) {
+        try { return JSON.parse(t); } catch (e) { return null; }
+      }).catch(function (e) { throw new Error('读取后端失败：' + e.message); });
+    }
+    return ensureGist().then(function (g) { return Promise.resolve(readRemote(g)); });
+  }
+
+  function remoteWrite(merged) {
+    if (mode() === 'worker') {
+      return fetch(epUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged)
+      }).then(function (r) {
+        if (!r.ok) throw new Error('后端返回 HTTP ' + r.status);
+        return true;
+      });
+    }
+    return ensureGist().then(function (g) {
+      var files = {};
+      files[FILE] = { content: JSON.stringify(merged) };
+      return req('PATCH', '/gists/' + g.id, { files: files });
+    });
+  }
+
   /* ---------- 同步一次 ---------- */
   function sync(snapshot) {
-    if (!getToken()) {
-      state.lastError = '未配置 token';
-      return Promise.reject(new Error('未配置 token'));
+    if (mode() === 'none') {
+      state.lastError = '未配置同步方式';
+      return Promise.reject(new Error('请先配置 GitHub token 或自建后端'));
     }
+    var tag = mode() === 'worker' ? getEp() : (getGistId() || '待创建');
     state.busy = true;
-    return ensureGist().then(function (g) {
-      // readRemote 可能是同步值也可能是 Promise（内容截断时回源）
-      return Promise.resolve(readRemote(g)).then(function (remoteRaw) {
-        var remote = remoteRaw || { records: [], deleted: [] };
-        var merged = merge(snapshot, remote);
-        var same = JSON.stringify(merged) === JSON.stringify(remote);
-        if (same) {
-          state.busy = false; state.lastSync = Date.now(); state.lastError = '';
-          setMeta({ lastSync: state.lastSync, gist: g.id });
-          return { changed: false, data: merged, gist: g.id };
-        }
-        var files = {};
-        files[FILE] = { content: JSON.stringify(merged) };
-        return req('PATCH', '/gists/' + g.id, { files: files }).then(function () {
-          state.busy = false; state.lastSync = Date.now(); state.lastError = '';
-          setMeta({ lastSync: state.lastSync, gist: g.id });
-          return { changed: true, data: merged, gist: g.id };
-        });
+    return Promise.resolve(remoteRead()).then(function (remoteRaw) {
+      var remote = remoteRaw || { records: [], deleted: [] };
+      var merged = merge(snapshot, remote);
+      var same = JSON.stringify(merged) === JSON.stringify(remote);
+      if (same) {
+        state.busy = false; state.lastSync = Date.now(); state.lastError = '';
+        setMeta({ lastSync: state.lastSync, target: tag, mode: mode() });
+        return { changed: false, data: merged, gist: tag };
+      }
+      return remoteWrite(merged).then(function () {
+        state.busy = false; state.lastSync = Date.now(); state.lastError = '';
+        setMeta({ lastSync: state.lastSync, target: tag, mode: mode() });
+        return { changed: true, data: merged, gist: tag };
       });
     }).catch(function (e) {
       state.busy = false; state.lastError = e.message;
@@ -146,18 +196,29 @@
     });
   }
 
-  function clear() { setToken(''); setGistId(''); setMeta({}); state.lastSync = 0; state.lastError = ''; }
+  function clear() {
+    setToken(''); setGistId(''); setEp(''); setMeta({});
+    state.lastSync = 0; state.lastError = '';
+  }
+  function clearEp() { setEp(''); setMeta({}); state.lastSync = 0; state.lastError = ''; }
+  function clearGist() { setToken(''); setGistId(''); setMeta({}); state.lastSync = 0; state.lastError = ''; }
 
   window.CETSync = {
-    ready: function () { return !!getToken(); },
+    ready: function () { return mode() !== 'none'; },
+    mode: mode,
     token: getToken,
     setToken: setToken,
     gistId: getGistId,
+    ep: getEp,
+    code: getCode,
+    setEp: setEp,
     meta: getMeta,
     state: state,
     sync: sync,
     merge: merge,
     clear: clear,
+    clearEp: clearEp,
+    clearGist: clearGist,
     FILE: FILE
   };
 })();
