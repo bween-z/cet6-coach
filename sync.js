@@ -65,7 +65,8 @@
     return req('GET', '/gists?per_page=100').then(function (list) {
       var hit = null;
       (list || []).forEach(function (g) { if (g && g.description === DESC) hit = g; });
-      if (hit) { setGistId(hit.id); return hit; }
+      // 列表接口不返回文件内容，必须再取一次详情，否则会误判为「云端为空」而覆盖掉已有数据
+      if (hit) { setGistId(hit.id); return req('GET', '/gists/' + hit.id); }
       return req('POST', '/gists', { description: DESC, public: false, files: blankFiles() })
         .then(function (g) { setGistId(g.id); return g; });
     });
@@ -75,8 +76,16 @@
     var f = g && g.files && g.files[FILE];
     if (!f) return null;
     var txt = f.content;
-    if (!txt && f.truncated && f.raw_url) return null; // 超大文件不处理
-    try { return JSON.parse(txt); } catch (e) { return null; }
+    if (txt) {
+      try { return JSON.parse(txt); } catch (e) { return null; }
+    }
+    // 内容被截断时回源取原始文本（secret gist 也带 Authorization）
+    if (f.truncated && f.raw_url) {
+      return fetch(f.raw_url, { headers: { Authorization: 'Bearer ' + getToken() }, cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (t) { try { return JSON.parse(t); } catch (e) { return null; } });
+    }
+    return null;
   }
 
   /* ---------- 合并：按 id 取新，删除用墓碑 ---------- */
@@ -113,20 +122,23 @@
     }
     state.busy = true;
     return ensureGist().then(function (g) {
-      var remote = readRemote(g) || { records: [], deleted: [] };
-      var merged = merge(snapshot, remote);
-      var same = JSON.stringify(merged) === JSON.stringify(remote);
-      if (same) {
-        state.busy = false; state.lastSync = Date.now(); state.lastError = '';
-        setMeta({ lastSync: state.lastSync, gist: g.id });
-        return { changed: false, data: merged, gist: g.id };
-      }
-      var files = {};
-      files[FILE] = { content: JSON.stringify(merged) };
-      return req('PATCH', '/gists/' + g.id, { files: files }).then(function () {
-        state.busy = false; state.lastSync = Date.now(); state.lastError = '';
-        setMeta({ lastSync: state.lastSync, gist: g.id });
-        return { changed: true, data: merged, gist: g.id };
+      // readRemote 可能是同步值也可能是 Promise（内容截断时回源）
+      return Promise.resolve(readRemote(g)).then(function (remoteRaw) {
+        var remote = remoteRaw || { records: [], deleted: [] };
+        var merged = merge(snapshot, remote);
+        var same = JSON.stringify(merged) === JSON.stringify(remote);
+        if (same) {
+          state.busy = false; state.lastSync = Date.now(); state.lastError = '';
+          setMeta({ lastSync: state.lastSync, gist: g.id });
+          return { changed: false, data: merged, gist: g.id };
+        }
+        var files = {};
+        files[FILE] = { content: JSON.stringify(merged) };
+        return req('PATCH', '/gists/' + g.id, { files: files }).then(function () {
+          state.busy = false; state.lastSync = Date.now(); state.lastError = '';
+          setMeta({ lastSync: state.lastSync, gist: g.id });
+          return { changed: true, data: merged, gist: g.id };
+        });
       });
     }).catch(function (e) {
       state.busy = false; state.lastError = e.message;
